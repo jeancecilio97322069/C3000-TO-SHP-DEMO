@@ -155,7 +155,7 @@ label{font-size:11px;font-weight:700;color:var(--tinta2);text-transform:uppercas
   <div class="tela ativa" id="tela-arquivos">
     <div id="zona-drop">
       <strong>Toque para escolher os .zip das frotas</strong>
-      <p>ex.: (C3000) +  (TASKDATA ISO-XML) — pode selecionar vários de uma vez</p>
+      <p>ex.: 1006.zip (C3000) + 1008.zip (TASKDATA ISO-XML) — pode selecionar vários de uma vez</p>
       <button class="botao" onclick="document.getElementById('arq').click()">Escolher arquivos</button>
       <input type="file" id="arq" multiple accept=".zip,.ZIP">
     </div>
@@ -453,7 +453,7 @@ async function tratar(lista){
   }
 }
 async function carregarZip(zip, frota, st){
-  const xmls={}, bins={}, csvs={}, inis={}, metas={}, pdfs={}, xmlCadastro=[];
+  const xmls={}, bins={}, csvs={}, inis={}, metas={}, pdfs={}, xmlCadastro=[], dvcs=[];
   function idJob(caminho, prefixo){
     const partes = caminho.split('/');
     if(partes.length>=2){
@@ -469,7 +469,8 @@ async function carregarZip(zip, frota, st){
     if(base.startsWith('._')) continue;
     const cima = base.toUpperCase();
     const ehTaskdataDir = !caminho.toUpperCase().includes('REPORTS');
-    if(cima.startsWith('TLG') && cima.endsWith('.XML')) xmls[cima] = await z.async('string');
+    if(cima.startsWith('DVC') && cima.endsWith('.XML')) dvcs.push(await z.async('string'));
+    else if(cima.startsWith('TLG') && cima.endsWith('.XML')) xmls[cima] = await z.async('string');
     else if(cima.startsWith('TLG') && cima.endsWith('.BIN')) bins[cima] = await z.async('arraybuffer');
     else if(cima.endsWith('.XML') && ehTaskdataDir &&
       (cima.startsWith('TSK')||cima.startsWith('PFD')||cima.startsWith('FRM')||cima.startsWith('CTR')))
@@ -499,6 +500,12 @@ async function carregarZip(zip, frota, st){
   }
   // cadastro ISO-XML: TLG -> tarefa/talhão/fazenda/cliente + contornos de talhão
   const cad = parseCadastro(xmlCadastro);
+  // largura de trabalho vinda do device (DVC): alguns monitores (ex. AGRES ISOSPRAY)
+  // NÃO logam a largura ponto-a-ponto (sem DDI 0043 nos TLG); ela fica só como
+  // propriedade estática do implemento. Sem esse fallback a pintura sai com larg=0
+  // e nada de cobertura aparece. Prioridade: 0043 (largura de trabalho) -> 0046
+  // (largura total da barra) -> 0044 -> 0045. Valor em mm.
+  const largFallbackMM = larguraDoDVC(dvcs);
   // ISO-XML
   const nomesTLG = Object.keys(xmls).sort();
   const pfdsUsados = new Set();
@@ -508,7 +515,7 @@ async function carregarZip(zip, frota, st){
     if(!bin) continue;
     st.textContent = frota+' · decodificando '+base+'…';
     await new Promise(r=>setTimeout(r,10));
-    const u = normalizarISO(xmls[nomeX], bin, frota, base);
+    const u = normalizarISO(xmls[nomeX], bin, frota, base, largFallbackMM);
     if(u){
       const info = cad.porTLG[base] || {};
       u.tarefa = info.tarefa||''; u.talhao = info.talhao||'';
@@ -744,7 +751,30 @@ function parseCadastro(textos){
 
 /* ================= Fonte ISO-XML ================= */
 const TAM = {i4:4,u4:4,u2:2,u1:1};
-function normalizarISO(xmlTxt, buf, frota, nome){
+/* Extrai a largura de trabalho do implemento a partir das propriedades ESTÁTICAS
+   do device (DVC/DPT). Usado como fallback quando o TLG não loga o DDI 0043.
+   Prioridade por DDI: 0043 (Working Width) > 0046 (Boom Total Width) > 0044 > 0045.
+   Retorna o MAIOR valor plausível (mm) da prioridade mais alta encontrada. */
+function larguraDoDVC(textos){
+  if(!textos || !textos.length) return 0;
+  const parser = new DOMParser();
+  const porDDI = {'0043':[], '0046':[], '0044':[], '0045':[]};
+  for(const txt of textos){
+    const doc = parser.parseFromString(txt, 'text/xml');
+    doc.querySelectorAll('DPT').forEach(e=>{
+      const ddi = (e.getAttribute('B')||'').toUpperCase();
+      if(ddi in porDDI){
+        const v = parseInt(e.getAttribute('C'), 10);
+        if(isFinite(v) && v>0 && v<100000) porDDI[ddi].push(v); // <100 m, descarta lixo
+      }
+    });
+  }
+  for(const ddi of ['0043','0046','0044','0045']){
+    if(porDDI[ddi].length) return Math.max(...porDDI[ddi]);
+  }
+  return 0;
+}
+function normalizarISO(xmlTxt, buf, frota, nome, largFallbackMM){
   const doc = new DOMParser().parseFromString(xmlTxt, 'text/xml');
   const tim = doc.querySelector('TIM');
   if(!tim) return null;
@@ -817,6 +847,7 @@ function normalizarISO(xmlTxt, buf, frota, nome){
   const cLarg = colFF(melhorDDI(0x0043));
   const cWS = colFF(melhorDDI(0x008D));
   const cTaxa = colFF(melhorDDI(0x0002));
+  const largFB = (largFallbackMM>0) ? largFallbackMM/1000 : 0; // largura do device (m)
   // colunas normalizadas
   const larg=new Float32Array(n), taxa=new Float32Array(n).fill(NaN);
   const vel=new Float32Array(n).fill(NaN), alt=new Float32Array(n).fill(NaN);
@@ -825,8 +856,13 @@ function normalizarISO(xmlTxt, buf, frota, nome){
   let j=0;
   for(let i=0;i<n;i++){
     tempo[i] = dia[i]*86400000 + ms[i];
-    let lg = cLarg ? (isNaN(cLarg[i])||cLarg[i]<=0 ? 0 : cLarg[i]/1000) : 0;
-    if(cWS && !isNaN(cWS[i]) && cWS[i]<=0) lg = 0;
+    // largura: usa o DDI 0043 logado ponto-a-ponto quando existe; senão cai no
+    // fallback do device (DVC/DPT). Sem isso, monitores que não logam 0043
+    // (ex. AGRES ISOSPRAY) saíam com larg=0 e não pintavam nenhuma cobertura.
+    let lg;
+    if(cLarg && !isNaN(cLarg[i]) && cLarg[i]>0) lg = cLarg[i]/1000;
+    else lg = largFB;
+    if(cWS && !isNaN(cWS[i]) && cWS[i]<=0) lg = 0; // fora de trabalho (work state) não pinta
     larg[i]=lg;
     if(cTaxa && !isNaN(cTaxa[i])) taxa[i]=cTaxa[i]*1e-4;
     if(temAlt) alt[i]=altMM[i]/1000;

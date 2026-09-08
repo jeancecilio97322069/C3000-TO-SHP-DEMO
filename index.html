@@ -77,7 +77,6 @@ label{font-size:11px;font-weight:700;color:var(--tinta2);text-transform:uppercas
 #dia-pop label.todos,#exp-dia-pop label.todos{font-weight:700}
 #dia-pop input,#exp-dia-pop input{width:15px;height:15px;margin:0;accent-color:var(--verde)}
 #dia-pop .sep,#exp-dia-pop .sep{border-top:1px solid var(--borda);margin:3px 2px}
-/* seletor genérico de múltipla escolha (frota/cliente/fazenda/área na exportação) */
 .mpick-wrap{position:relative}
 .mpick-btn{width:100%;padding:10px 22px 10px 10px;border:1px solid var(--borda);border-radius:8px;
   font-size:14px;background:var(--painel);color:var(--tinta);text-align:left;cursor:pointer;position:relative}
@@ -99,9 +98,8 @@ label{font-size:11px;font-weight:700;color:var(--tinta2);text-transform:uppercas
 #recolher{position:absolute;top:10px;right:10px;z-index:1001;background:var(--painel);border:1px solid var(--borda);
   border-radius:8px;width:36px;height:36px;font-size:17px;cursor:pointer;display:block;box-shadow:0 2px 8px rgba(0,0,0,.15)}
 #painel-mapa.escondido{display:none}
-#painel-mapa{top:56px}   /* abre o espaço p/ o botão de recolher no canto */
+#painel-mapa{top:56px}
 #busca-area.oculto{display:none!important}
-/* ---- Botão de camadas (canto inferior direito) ---- */
 #camadas-wrap{position:absolute;left:10px;bottom:26px;z-index:1001}
 #camadas-btn{width:40px;height:40px;border-radius:8px;border:1px solid var(--borda);background:var(--painel);
   color:var(--tinta);cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2);display:flex;align-items:center;justify-content:center}
@@ -117,7 +115,6 @@ label{font-size:11px;font-weight:700;color:var(--tinta2);text-transform:uppercas
   #painel-mapa{top:56px}
 }
 .chip{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
-/* ---- Busca de área (topo do mapa, estilo TAP) ---- */
 #busca-area{position:absolute;top:10px;left:10px;z-index:1002;width:300px;max-width:calc(100% - 64px)}
 #busca-cx{display:flex;align-items:center;background:var(--painel);border:1px solid var(--borda);
   border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.18);overflow:hidden}
@@ -141,7 +138,7 @@ label{font-size:11px;font-weight:700;color:var(--tinta2);text-transform:uppercas
 <body>
 <header>
   <h1>Mapa de Frota — aplicação unificada</h1>
-  <p>ISO-XML (TASKDATA) + Topcon C3000 · frota = nome do zip</p>
+  <p>ISO-XML (TASKDATA) + Topcon C3000 / Coverage · frota = nome do zip</p>
 </header>
 
 <div id="abas">
@@ -155,7 +152,7 @@ label{font-size:11px;font-weight:700;color:var(--tinta2);text-transform:uppercas
   <div class="tela ativa" id="tela-arquivos">
     <div id="zona-drop">
       <strong>Toque para escolher os .zip das frotas</strong>
-      <p>ex.: 1006.zip (C3000) + 1008.zip (TASKDATA ISO-XML) — pode selecionar vários de uma vez</p>
+      <p>ex.: 1006.zip (C3000/Coverage) + 1008.zip (TASKDATA ISO-XML) — selecione vários de uma vez</p>
       <button class="botao" onclick="document.getElementById('arq').click()">Escolher arquivos</button>
       <input type="file" id="arq" multiple accept=".zip,.ZIP">
     </div>
@@ -312,31 +309,15 @@ label{font-size:11px;font-weight:700;color:var(--tinta2);text-transform:uppercas
 
 <script>
 'use strict';
-/* =====================================================================
-   UNIDADE NORMALIZADA (comum às duas fontes)
-   u = { frota, fonte:'ISO'|'C3000', nome, n,
-         lat:F64, lon:F64, larg:F32(m efetiva; 0 = não aplicando),
-         taxa:F32(L/ha; NaN ausente), vel:F32(km/h; NaN), alt:F32(m; NaN),
-         dataHora(i) -> string,
-         tempo:F64|null (ms p/ detectar gaps; null = sem tempo confiável),
-         head:F32|null (C3000), mask:Int32Array|null, ini|null }
-===================================================================== */
 const UNIDADES = [];
 const TALHOES = [];
 let mapa=null, camada=null, camadaTalhoes=null;
 const TODAS='*';
 
-/* OS = ordem de serviço: vem editada no campo Tarefa (TSK@B) ou, quando vazio,
-   no campo do Talhão/Campo (PFD@C). Cobre os dois padrões de edição. */
 function osDe(u){ return (u && (u.tarefa || u.talhao) || '').trim(); }
-/* Estados dos filtros novos (vazio = todos). Compartilhados por Mapa e Exportar. */
-const FILTRO = { cliente:TODAS, faz:TODAS, area:TODAS };      // Mapa
-/* Exportar: múltipla escolha — cada Set vazio significa "todos" */
+const FILTRO = { cliente:TODAS, faz:TODAS, area:TODAS };
 const EXP_FROTA=new Set(), EXP_CLIENTE=new Set(), EXP_FAZ=new Set(), EXP_AREA=new Set();
 
-/* ----- Filtro por Área (talhão do SHP): ponto dentro do polígono ----- */
-/* anéis em [lat,lon]; ray casting no plano lon(x)/lat(y). Rótulo de uma feição SHP
-   vem do attrs (campo escolhido) ou do nome. campo = atributo daquela camada. */
 function rotuloAreaSHP(t, campo){
   campo = campo || 'auto';
   if(campo && campo!=='auto' && t.attrs && t.attrs[campo]!=null && String(t.attrs[campo]).trim())
@@ -345,7 +326,7 @@ function rotuloAreaSHP(t, campo){
   if(t.attrs){ for(const k in t.attrs){ const v=String(t.attrs[k]||'').trim(); if(v) return v; } }
   return '';
 }
-let _AREAS_IDX = null;  // [{rot, aneis, bb:[minLat,minLon,maxLat,maxLon], origem:'talhao'|'perim'}]
+let _AREAS_IDX = null;
 function reindexarAreas(){
   _AREAS_IDX = [];
   const campoTalh = (typeof ESTILO_SHP!=='undefined' && ESTILO_SHP.campoNomeTalh) || 'auto';
@@ -378,7 +359,6 @@ function pontoEmAnel(la, lo, anel){
   }
   return dentro;
 }
-/* true se (la,lo) cai em ALGUMA das áreas cujo rótulo == alvo */
 function pontoNaArea(la, lo, alvo){
   if(_AREAS_IDX===null) reindexarAreas();
   if(!_AREAS_IDX) return false;
@@ -389,21 +369,17 @@ function pontoNaArea(la, lo, alvo){
   }
   return false;
 }
-/* Unidade passa nos filtros de cliente/fazenda? (área é ponto-a-ponto, tratada no desenho/export) */
 function unidPassaFiltro(u, filt){
   if(filt.cliente!==TODAS && (u.cliente||'')!==filt.cliente) return false;
   if(filt.faz!==TODAS && (u.fazenda||'')!==filt.faz) return false;
   return true;
 }
-/* uma unidade tem algum ponto dentro da área alvo? (pré-filtro rápido p/ export) */
 function unidTemArea(u, alvo){
   if(alvo===TODAS) return true;
   const passo = Math.max(1, Math.ceil(u.n/4000));
   for(let i=0;i<u.n;i+=passo) if(u.larg[i]>0 && pontoNaArea(u.lat[i],u.lon[i],alvo)) return true;
-  // varredura fina só se a amostragem não achou nada mas há sobreposição de bbox
   return false;
 }
-/* versões multi-área (Set de rótulos; usadas na exportação) */
 function pontoNasAreas(la, lo, setAlvos){
   if(_AREAS_IDX===null) reindexarAreas();
   if(!_AREAS_IDX) return false;
@@ -420,7 +396,7 @@ function unidTemAreas(u, setAlvos){
   for(let i=0;i<u.n;i+=passo) if(u.larg[i]>0 && pontoNasAreas(u.lat[i],u.lon[i],setAlvos)) return true;
   return false;
 }
-function escHtml(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function escHtml(s){ return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
 /* ================= Entrada ================= */
 const inArq = document.getElementById('arq');
@@ -443,7 +419,7 @@ async function tratar(lista){
       const zip = await JSZip.loadAsync(f);
       await carregarZip(zip, frota, st);
     }
-    if(!UNIDADES.length) throw new Error('Nenhum dado reconhecido (TLG XML+BIN ou *_PPD_FullData.csv).');
+    if(!UNIDADES.length) throw new Error('Nenhum dado reconhecido (TLG XML+BIN, PPD_FullData.csv ou CoverageShapefiles).');
     const totalN = UNIDADES.reduce((s,u)=>s+u.n,0);
     st.textContent = new Set(UNIDADES.map(u=>u.frota)).size+' frota(s) · '+UNIDADES.length+' unidade(s) · '+totalN.toLocaleString('pt-BR')+' registros';
     montarTabelas();
@@ -452,8 +428,11 @@ async function tratar(lista){
     st.textContent = 'Erro: '+err.message; st.style.color='var(--vermelho)';
   }
 }
+
 async function carregarZip(zip, frota, st){
   const xmls={}, bins={}, csvs={}, inis={}, metas={}, pdfs={}, xmlCadastro=[], dvcs=[];
+  const covShapes = {}; // Fallback para shapes de cobertura quando não há CSV
+
   function idJob(caminho, prefixo){
     const partes = caminho.split('/');
     if(partes.length>=2){
@@ -462,6 +441,7 @@ async function carregarZip(zip, frota, st){
     }
     return prefixo;
   }
+
   for(const caminho in zip.files){
     const z = zip.files[caminho];
     if(z.dir || caminho.includes('__MACOSX')) continue;
@@ -469,6 +449,7 @@ async function carregarZip(zip, frota, st){
     if(base.startsWith('._')) continue;
     const cima = base.toUpperCase();
     const ehTaskdataDir = !caminho.toUpperCase().includes('REPORTS');
+
     if(cima.startsWith('DVC') && cima.endsWith('.XML')) dvcs.push(await z.async('string'));
     else if(cima.startsWith('TLG') && cima.endsWith('.XML')) xmls[cima] = await z.async('string');
     else if(cima.startsWith('TLG') && cima.endsWith('.BIN')) bins[cima] = await z.async('arraybuffer');
@@ -491,24 +472,25 @@ async function carregarZip(zip, frota, st){
         if(bytes.length < 20000000) pdfs[mnum[1]] = bytes;
       }
     }
+    else if(caminho.toUpperCase().includes('COVERAGESHAPEFILES')){
+      const nomeBase = base.replace(/\.[^.]+$/,'');
+      covShapes[nomeBase] = covShapes[nomeBase] || {};
+      if(cima.endsWith('.SHP')) covShapes[nomeBase].shp = await z.async('arraybuffer');
+      else if(cima.endsWith('.DBF')) covShapes[nomeBase].dbf = await z.async('arraybuffer');
+      else if(cima.endsWith('.PRJ')) covShapes[nomeBase].prj = await z.async('string');
+    }
     else if(/\/JOBS\//i.test('/'+caminho) && /\.(ini|xml|txt|json|cfg)$/i.test(base) && !cima.includes('FULLDATA')){
-      // qualquer arquivo texto pequeno na pasta do job pode carregar nomes de fazenda/cliente
       const id = idJob(caminho, base.replace(/\.[^.]+$/,''));
       const txt = await z.async('string');
       if(txt.length < 300000) (metas[id] = metas[id]||[]).push(txt);
     }
   }
-  // cadastro ISO-XML: TLG -> tarefa/talhão/fazenda/cliente + contornos de talhão
+
   const cad = parseCadastro(xmlCadastro);
-  // largura de trabalho vinda do device (DVC): alguns monitores (ex. AGRES ISOSPRAY)
-  // NÃO logam a largura ponto-a-ponto (sem DDI 0043 nos TLG); ela fica só como
-  // propriedade estática do implemento. Sem esse fallback a pintura sai com larg=0
-  // e nada de cobertura aparece. Prioridade: 0043 (largura de trabalho) -> 0046
-  // (largura total da barra) -> 0044 -> 0045. Valor em mm.
   const largFallbackMM = larguraDoDVC(dvcs);
-  // ISO-XML
   const nomesTLG = Object.keys(xmls).sort();
   const pfdsUsados = new Set();
+  
   for(const nomeX of nomesTLG){
     const base = nomeX.replace('.XML','');
     const bin = bins[base+'.BIN'];
@@ -525,7 +507,7 @@ async function carregarZip(zip, frota, st){
     }
     bins[base+'.BIN'] = null;
   }
-  // contornos dos talhões efetivamente usados pelas tarefas carregadas
+  
   for(const pid of pfdsUsados){
     const p = cad.pfdM[pid];
     if(p && p.aneis.length){
@@ -533,15 +515,22 @@ async function carregarZip(zip, frota, st){
       TALHOES.push({frota, nome:p.nome, fazenda:fz, aneis:p.aneis});
     }
   }
-  // C3000
+
+  // C3000 via CSVs
   for(const id in csvs){
     st.textContent = frota+' · job '+id+'…';
     await new Promise(r=>setTimeout(r,10));
-    const u = normalizarC3000(csvs[id], inis[id]||'', frota, id);
+    // _PPD.ini pode vir VAZIO (0 bytes) no export do C3000; nesse caso a largura das
+    // seções é buscada nos outros .ini do job (<job>.ini traz [ASCSectionDetails]).
+    let iniTxt = inis[id]||'';
+    if(!parseINI(iniTxt).secoes.length){
+      for(const t of (metas[id]||[])){ if(parseINI(t).secoes.length){ iniTxt=t; break; } }
+    }
+    const u = normalizarC3000(csvs[id], iniTxt, frota, id);
     if(u){
       const nomes = acharNomesJob(metas[id]);
       u.tarefa = '';
-      u.talhao = nomes.talhao || id;      // OS do job no fim, igual ao padrão do ISO
+      u.talhao = nomes.talhao || id;
       u.fazenda = nomes.fazenda || '';
       u.cliente = nomes.cliente || '';
       if(!u.fazenda && pdfs[id]){
@@ -554,11 +543,33 @@ async function carregarZip(zip, frota, st){
       UNIDADES.push(u);
     }
   }
+
+  // C3000 via CoverageShapefiles (quando o Job não possui CSV direto)
+  for(const nomeJob in covShapes){
+    if(csvs[nomeJob]) continue; // Se já processou via CSV, não duplica
+    const cj = covShapes[nomeJob];
+    if(!cj.shp) continue;
+    st.textContent = frota+' · cobertura SHP '+nomeJob+'…';
+    await new Promise(r=>setTimeout(r,10));
+    const u = normalizarCoverageSHP(cj, frota, nomeJob);
+    if(u){
+      const nomes = acharNomesJob(metas[nomeJob]);
+      u.tarefa = '';
+      u.talhao = nomes.talhao || nomeJob;
+      u.fazenda = nomes.fazenda || '';
+      u.cliente = nomes.cliente || '';
+      if(!u.fazenda && pdfs[nomeJob]){
+        try{
+          const np = await extrairNomesPDF(pdfs[nomeJob]);
+          if(np.fazenda) u.fazenda = np.fazenda;
+          if(np.cliente && !u.cliente) u.cliente = np.cliente;
+        }catch(e){}
+      }
+      UNIDADES.push(u);
+    }
+  }
 }
 
-
-/* extrai Client/Farm do Job Summary PDF da Topcon (Reports/): infla streams com
-   DecompressionStream, decodifica glifos via CMaps ToUnicode e pareia célula→valor */
 async function inflarBytes(u8){
   for(const fmt of ['deflate','deflate-raw']){
     try{
@@ -568,6 +579,7 @@ async function inflarBytes(u8){
   }
   return null;
 }
+
 async function extrairNomesPDF(u8){
   const dec = new TextDecoder('latin1');
   const s = dec.decode(u8);
@@ -595,7 +607,7 @@ async function extrairNomesPDF(u8){
     const corpo = corpoObj(+mu[1]);
     const ms = corpo.match(/stream\r?\n([\s\S]*?)\r?\nendstream/);
     if(!ms) return cm;
-    const t = ms[1];   // ToUnicode dos PDFs Topcon vem sem compressão
+    const t = ms[1];
     for(const bc of t.matchAll(/beginbfchar([\s\S]*?)endbfchar/g))
       for(const m of bc[1].matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g))
         cm[parseInt(m[1],16)] = hex2txt(m[2]);
@@ -654,7 +666,7 @@ async function extrairNomesPDF(u8){
         if(texto) blocos.push(texto);
       }
     }
-    if(blocos.includes('Farm')) break;   // primeira página já basta
+    if(blocos.includes('Farm')) break;
   }
   const resultado = {fazenda:'', cliente:''};
   for(const [chave, alvo] of [['Farm','fazenda'],['Client','cliente']]){
@@ -663,7 +675,7 @@ async function extrairNomesPDF(u8){
   }
   return resultado;
 }
-/* caça nomes de fazenda/cliente/talhão em textos de metadados do job (INI/XML variados) */
+
 function acharNomesJob(textos){
   const achado = {fazenda:'', cliente:'', talhao:''};
   const regras = [
@@ -677,22 +689,20 @@ function acharNomesJob(textos){
     ['cliente', /\[Client\][^\[]*?\bName\s*=\s*([^\r\n;]+)/i],
     ['talhao',  /\[Field\][^\[]*?\bName\s*=\s*([^\r\n;]+)/i]
   ];
-  for(const txt of textos||[]){
+  for(const txt of (textos||[])){
+    if(typeof txt !== 'string') continue;
     for(const [chave, re] of regras){
       if(achado[chave]) continue;
       const m = txt.match(re);
-      if(m){
-        const v = m[1].trim();
+      if(m && m[1]){
+        const v = String(m[1]).trim();
         if(v && v !== '0' && v.toLowerCase() !== 'none') achado[chave] = v;
       }
     }
   }
   return achado;
 }
-/* cadeia ISO-XML: TSK(B=nome,E=pfd) -> PFD(C=nome,F=frm,+PLN/LSG/PNT) -> FRM(B,I=ctr) -> CTR(B) */
-/* Saneia um anel de contorno: remove coordenadas invalidas/(0,0) e quebra o anel
-   onde ha salto > SALTO_MAX_M entre vertices consecutivos (vertice espurio no
-   TASKDATA gera reta atravessando o mapa). Retorna lista de aneis validos. */
+
 const SALTO_MAX_M = 2000;
 function sanearAnel(pts){
   const ok = pts.filter(p =>
@@ -710,10 +720,12 @@ function sanearAnel(pts){
   if(run.length>=3) runs.push(run);
   return runs;
 }
+
 function parseCadastro(textos){
   const parser = new DOMParser();
   const ctr={}, frmM={}, pfdM={}, porTLG={};
   for(const txt of textos){
+    if(!txt) continue;
     const doc = parser.parseFromString(txt,'text/xml');
     doc.querySelectorAll('CTR').forEach(e=>ctr[e.getAttribute('A')]=e.getAttribute('B')||'');
     doc.querySelectorAll('FRM').forEach(e=>frmM[e.getAttribute('A')]={nome:e.getAttribute('B')||'', ctr:e.getAttribute('I')||''});
@@ -732,6 +744,7 @@ function parseCadastro(textos){
   }
   for(const id in pfdM) pfdM[id].fazNome = (frmM[pfdM[id].frm]||{}).nome||'';
   for(const txt of textos){
+    if(!txt) continue;
     const doc = parser.parseFromString(txt,'text/xml');
     doc.querySelectorAll('TSK').forEach(t=>{
       const p = pfdM[t.getAttribute('E')]||{};
@@ -751,21 +764,18 @@ function parseCadastro(textos){
 
 /* ================= Fonte ISO-XML ================= */
 const TAM = {i4:4,u4:4,u2:2,u1:1};
-/* Extrai a largura de trabalho do implemento a partir das propriedades ESTÁTICAS
-   do device (DVC/DPT). Usado como fallback quando o TLG não loga o DDI 0043.
-   Prioridade por DDI: 0043 (Working Width) > 0046 (Boom Total Width) > 0044 > 0045.
-   Retorna o MAIOR valor plausível (mm) da prioridade mais alta encontrada. */
 function larguraDoDVC(textos){
   if(!textos || !textos.length) return 0;
   const parser = new DOMParser();
   const porDDI = {'0043':[], '0046':[], '0044':[], '0045':[]};
   for(const txt of textos){
+    if(!txt) continue;
     const doc = parser.parseFromString(txt, 'text/xml');
     doc.querySelectorAll('DPT').forEach(e=>{
       const ddi = (e.getAttribute('B')||'').toUpperCase();
       if(ddi in porDDI){
         const v = parseInt(e.getAttribute('C'), 10);
-        if(isFinite(v) && v>0 && v<100000) porDDI[ddi].push(v); // <100 m, descarta lixo
+        if(isFinite(v) && v>0 && v<100000) porDDI[ddi].push(v);
       }
     });
   }
@@ -774,11 +784,11 @@ function larguraDoDVC(textos){
   }
   return 0;
 }
+
 function normalizarISO(xmlTxt, buf, frota, nome, largFallbackMM){
   const doc = new DOMParser().parseFromString(xmlTxt, 'text/xml');
   const tim = doc.querySelector('TIM');
   if(!tim) return null;
-  // layout
   const L = {timA: tim.getAttribute('A')==='', ptn:[], dlvs:[]};
   const ptn = tim.querySelector('PTN');
   const camposP = [['A','i4'],['B','i4'],['C','i4'],['D','u1'],['E','u2'],['F','u2'],['G','u1'],['H','u4'],['I','u2']];
@@ -787,7 +797,6 @@ function normalizarISO(xmlTxt, buf, frota, nome, largFallbackMM){
     if(v!==null && v==='') L.ptn.push([attr,tipo]);
   }
   tim.querySelectorAll('DLV').forEach(d=>L.dlvs.push({ddi:d.getAttribute('A').toUpperCase(), det:d.getAttribute('C')}));
-  // parse binário colunar (2 passadas)
   const dv = new DataView(buf);
   const fim = buf.byteLength;
   const fixo = (L.timA?6:0) + L.ptn.reduce((s,c)=>s+TAM[c[1]],0);
@@ -818,7 +827,6 @@ function normalizarISO(xmlTxt, buf, frota, nome, largFallbackMM){
     for(let k=0;k<nd;k++){ dlvIdx[p]=dv.getUint8(o); dlvVal[p]=dv.getInt32(o+1,true); o+=5; p++; }
   }
   dlvPtr[n]=p;
-  // melhores índices por DDI (o que mais varia)
   function melhorDDI(ddiNum){
     const cand=[];
     L.dlvs.forEach((d,i)=>{ if(parseInt(d.ddi,16)===ddiNum) cand.push(i); });
@@ -847,8 +855,7 @@ function normalizarISO(xmlTxt, buf, frota, nome, largFallbackMM){
   const cLarg = colFF(melhorDDI(0x0043));
   const cWS = colFF(melhorDDI(0x008D));
   const cTaxa = colFF(melhorDDI(0x0002));
-  const largFB = (largFallbackMM>0) ? largFallbackMM/1000 : 0; // largura do device (m)
-  // colunas normalizadas
+  const largFB = (largFallbackMM>0) ? largFallbackMM/1000 : 0;
   const larg=new Float32Array(n), taxa=new Float32Array(n).fill(NaN);
   const vel=new Float32Array(n).fill(NaN), alt=new Float32Array(n).fill(NaN);
   const tempo=new Float64Array(n);
@@ -856,17 +863,13 @@ function normalizarISO(xmlTxt, buf, frota, nome, largFallbackMM){
   let j=0;
   for(let i=0;i<n;i++){
     tempo[i] = dia[i]*86400000 + ms[i];
-    // largura: usa o DDI 0043 logado ponto-a-ponto quando existe; senão cai no
-    // fallback do device (DVC/DPT). Sem isso, monitores que não logam 0043
-    // (ex. AGRES ISOSPRAY) saíam com larg=0 e não pintavam nenhuma cobertura.
     let lg;
     if(cLarg && !isNaN(cLarg[i]) && cLarg[i]>0) lg = cLarg[i]/1000;
     else lg = largFB;
-    if(cWS && !isNaN(cWS[i]) && cWS[i]<=0) lg = 0; // fora de trabalho (work state) não pinta
+    if(cWS && !isNaN(cWS[i]) && cWS[i]<=0) lg = 0;
     larg[i]=lg;
     if(cTaxa && !isNaN(cTaxa[i])) taxa[i]=cTaxa[i]*1e-4;
     if(temAlt) alt[i]=altMM[i]/1000;
-    // velocidade GPS: janela de ~1 s
     while(j<i && tempo[i]-tempo[j] > 1200) j++;
     const dt = (tempo[i]-tempo[j])/1000;
     if(dt>0.3 && !(lat[i]===0&&lon[i]===0) && !(lat[j]===0&&lon[j]===0)){
@@ -879,11 +882,11 @@ function normalizarISO(xmlTxt, buf, frota, nome, largFallbackMM){
     head:null, mask:null, ini:null, dataHora:fmt};
 }
 
-/* ================= Fonte C3000 ================= */
+/* ================= Fonte C3000 (CSV) ================= */
 function parseINI(txt){
   const cfg={secoes:[], largTotal:0};
   let sec=''; const dados={};
-  for(const lr of txt.split(/\r?\n/)){
+  for(const lr of (txt||'').split(/\r?\n/)){
     const l=lr.trim(); if(!l)continue;
     const m=l.match(/^\[(.+)\]$/);
     if(m){sec=m[1];dados[sec]={};continue;}
@@ -897,6 +900,12 @@ function parseINI(txt){
     if(!(k in b0)) break;
     cfg.secoes.push(parseFloat(b0[k]));
   }
+  // fallback: formato do <job>.ini do C3000 ([ASCSectionDetails] Sections=N, WidthSectionK=)
+  if(!cfg.secoes.length){
+    const asc=dados['ASCSectionDetails']||{};
+    const ns=parseInt(asc['Sections']||'0',10)||0;
+    for(let i=1;i<=ns;i++){ const w=parseFloat(asc['WidthSection'+i]); if(isFinite(w)&&w>0) cfg.secoes.push(w); }
+  }
   if(!cfg.secoes.length && bw>0) cfg.secoes=[bw];
   const total = cfg.secoes.reduce((s,w)=>s+w,0) || bw;
   cfg.largTotal = total;
@@ -905,13 +914,15 @@ function parseINI(txt){
   cfg.offsets = cfg.secoes.map(w=>{const o=[acc-meia,acc+w-meia];acc+=w;return o;});
   return cfg;
 }
+
 function normalizarC3000(listaCsv, iniTxt, frota, nome){
   const ini = parseINI(iniTxt);
-  // parse de todos os CSVs da OS
   const brutos = [];
   for(const txt of listaCsv){
+    if(!txt) continue;
     const linhas = txt.split(/\r?\n/);
-    const cab = linhas[0].split(',').map(s=>s.trim()).filter(s=>s);
+    if(!linhas.length) continue;
+    const cab = linhas[0].split(',').map(s=>s ? s.trim() : '').filter(Boolean);
     const ic = {}; cab.forEach((c,i)=>ic[c]=i);
     const col = (...ns)=>{ for(const nn of ns) if(nn in ic) return ic[nn]; return -1; };
     const iData=col('Date'), iHora=col('Time');
@@ -923,21 +934,30 @@ function normalizarC3000(listaCsv, iniTxt, frota, nome){
     if(iLat<0||iLon<0) continue;
     const nSec = ini.secoes.length;
     const maskCheia = nSec ? (1<<nSec)-1 : 0;
+    
     for(let li=1; li<linhas.length; li++){
-      if(!linhas[li]) continue;
-      const c = linhas[li].split(',');
-      if(c.length<5) continue;
-      const la=parseFloat(c[iLat]), lo=parseFloat(c[iLon]);
-      if(!isFinite(la)||!isFinite(lo)) continue;
-      let mk = iMask>=0 ? (parseInt(c[iMask])||0) : maskCheia;
-      if(iMaster>=0 && c[iMaster].trim().toLowerCase()!=='on') mk=0;
+      const linhaStr = linhas[li] ? linhas[li].trim() : '';
+      if(!linhaStr) continue;
+      const c = linhaStr.split(',');
+      if(c.length < 5) continue;
+      
+      const la = parseFloat(c[iLat]), lo = parseFloat(c[iLon]);
+      if(!isFinite(la) || !isFinite(lo)) continue;
+      
+      let mk = (iMask >= 0 && c[iMask] !== undefined) ? (parseInt(c[iMask], 10) || 0) : maskCheia;
+      const masterVal = (iMaster >= 0 && c[iMaster] !== undefined) ? String(c[iMaster]).trim().toLowerCase() : '';
+      if(iMaster >= 0 && masterVal && masterVal !== 'on') mk = 0;
+
+      const dataStr = (iData >= 0 && c[iData] !== undefined) ? String(c[iData]).trim() : '';
+      const horaStr = (iHora >= 0 && c[iHora] !== undefined) ? String(c[iHora]).trim().substring(0, 12) : '';
+
       brutos.push({
-        dt:(iData>=0?c[iData]:'')+' '+(iHora>=0?c[iHora].substring(0,12):''),
+        dt: (dataStr + ' ' + horaStr).trim(),
         la, lo, mk,
-        hd:iHead>=0?parseFloat(c[iHead])||0:0,
-        ve:iVel>=0?parseFloat(c[iVel])||NaN:NaN,
-        ra:iRateA>=0?parseFloat(c[iRateA])||NaN:NaN,
-        al:iAlt>=0?parseFloat(c[iAlt])||NaN:NaN
+        hd: (iHead >= 0 && c[iHead] !== undefined) ? (parseFloat(c[iHead]) || 0) : 0,
+        ve: (iVel >= 0 && c[iVel] !== undefined) ? (parseFloat(c[iVel]) || NaN) : NaN,
+        ra: (iRateA >= 0 && c[iRateA] !== undefined) ? (parseFloat(c[iRateA]) || NaN) : NaN,
+        al: (iAlt >= 0 && c[iAlt] !== undefined) ? (parseFloat(c[iAlt]) || NaN) : NaN
       });
     }
   }
@@ -950,7 +970,7 @@ function normalizarC3000(listaCsv, iniTxt, frota, nome){
   const head=new Float32Array(n);
   const mask=new Int32Array(n);
   const dtStr=new Array(n);
-  // largura efetiva por mask (cache)
+  
   const cacheLarg = new Map();
   function largDe(mk){
     if(cacheLarg.has(mk)) return cacheLarg.get(mk);
@@ -968,6 +988,123 @@ function normalizarC3000(listaCsv, iniTxt, frota, nome){
   }
   return {frota, fonte:'C3000', nome, n, lat, lon, larg, taxa, vel, alt,
     tempo:null, head, mask, ini, dataHora:i=>dtStr[i]};
+}
+
+/* ================= Fonte C3000 (CoverageShapefiles SHP+DBF) ================= */
+function normalizarCoverageSHP(cj, frota, nome){
+  const formas = parseShp(cj.shp);
+  let dbfData = null;
+  if(cj.dbf){
+    try { dbfData = parseDbf(cj.dbf); } catch(e){}
+  }
+  const prj = infoPrj(cj.prj);
+  
+  // Identifica colunas de velocidade, taxa, data e hora no DBF
+  let colVel = null, colRate = null, colDate = null, colTime = null;
+  if(dbfData && dbfData.campos){
+    for(const c of dbfData.campos){
+      const nm = c.nome.toUpperCase();
+      if(!colVel && (/SPEED|SPD|VEL|VELOCID/i.test(nm))) colVel = c.nome;
+      if(!colRate && (/RATE|TAXA|ACTUAL|APPRATE/i.test(nm))) colRate = c.nome;
+      if(!colDate && (/DATE|DATA/i.test(nm))) colDate = c.nome;
+      if(!colTime && (/TIME|HORA/i.test(nm))) colTime = c.nome;
+    }
+  }
+
+  const quads = [];
+  const dtStrs = [];
+  const velList = [];
+  const rateList = [];
+
+  for(let i=0; i<formas.length; i++){
+    const f = formas[i];
+    if(!f || !f.length || !f[0] || f[0].length < 3) continue;
+
+    const primeiro = f[0][0];
+    const projetado = primeiro && (Math.abs(primeiro[0])>180 || Math.abs(primeiro[1])>90);
+    let conv = p => [p[1], p[0]];
+    if(projetado && prj && !prj.geo && prj.cm !== null){
+      conv = p => utmParaLL(p[0], p[1], prj.cm, prj.fn, prj.k0);
+    }
+
+    const anel = f[0].map(conv).filter(p => isFinite(p[0]) && isFinite(p[1]) && Math.abs(p[0])<=90 && Math.abs(p[1])<=180 && !(p[0]===0 && p[1]===0));
+    if(anel.length < 3) continue;
+
+    // Centroide da feição de cobertura
+    let cLat = 0, cLon = 0;
+    for(const p of anel){ cLat += p[0]; cLon += p[1]; }
+    cLat /= anel.length;
+    cLon /= anel.length;
+
+    let dt = '';
+    let v = NaN;
+    let r = NaN;
+
+    if(dbfData && dbfData.regs && dbfData.regs[i]){
+      const row = dbfData.regs[i];
+      if(colDate && row[colDate]) dt += row[colDate] + ' ';
+      if(colTime && row[colTime]) dt += row[colTime];
+      if(colVel && row[colVel] !== undefined) v = parseFloat(row[colVel]);
+      if(colRate && row[colRate] !== undefined) r = parseFloat(row[colRate]);
+    }
+
+    quads.push({ anel, cLat, cLon, dt: dt.trim() || '2026-01-01 00:00:00', v, r });
+  }
+
+  const n = quads.length;
+  if(!n) return null;
+
+  const lat = new Float64Array(n);
+  const lon = new Float64Array(n);
+  const larg = new Float32Array(n);
+  const taxa = new Float32Array(n);
+  const vel = new Float32Array(n);
+  const alt = new Float32Array(n).fill(NaN);
+  const head = new Float32Array(n).fill(0);
+  const mask = new Int32Array(n).fill(0);
+  const dtStr = new Array(n);
+
+  const kLat = 111132;
+  const kLon = 111320 * Math.cos(quads[0].cLat * Math.PI / 180);
+
+  for(let i=0; i<n; i++){
+    const q = quads[i];
+    lat[i] = q.cLat;
+    lon[i] = q.cLon;
+    taxa[i] = isNaN(q.r) ? NaN : q.r;
+    dtStr[i] = q.dt;
+
+    // Cálculo da largura aproximada a partir da área do polígono
+    let areaGraus = 0;
+    const a = q.anel;
+    for(let k=0; k<a.length; k++){
+      const p1 = a[k], p2 = a[(k+1) % a.length];
+      areaGraus += (p2[1] - p1[1]) * (p2[0] + p1[0]);
+    }
+    const areaM2 = Math.abs(areaGraus * 0.5) * kLat * kLon;
+    larg[i] = areaM2 > 0 ? Math.min(36, Math.max(2, Math.sqrt(areaM2))) : 12; // estimativa se não houver seção
+
+    // Velocidade: se veio no DBF, usa. Senão, calcula pelo deslocamento entre centroides consecutivos
+    if(!isNaN(q.v) && q.v > 0){
+      vel[i] = q.v;
+    } else if(i > 0){
+      const dist = Math.hypot((lat[i] - lat[i-1]) * kLat, (lon[i] - lon[i-1]) * kLon);
+      // estima 1 seg de ciclo de log padrão
+      vel[i] = Math.min(35, Math.max(0, dist * 3.6));
+    } else {
+      vel[i] = 12.0; // valor inicial padrão plausível
+    }
+  }
+
+  // Anexa os anéis reais diretamente na unidade para o motor de desenho
+  const u = {
+    frota, fonte:'C3000', nome, n, lat, lon, larg, taxa, vel, alt,
+    tempo:null, head:null, mask:null, ini:null,
+    poligonosDiretos: quads.map(q => q.anel),
+    dataHora: i => dtStr[i]
+  };
+
+  return u;
 }
 
 /* ================= Geometria comum ================= */
@@ -993,7 +1130,7 @@ function trechosMask(mk, ini, inv){
   }
   return out;
 }
-/* cadeias de amostras agregadas p/ uma unidade */
+
 function construirCadeias(u, corArr, passoM, inv, keep){
   const cadeias=[]; let atual=null, prev=null, areaM2=0, proj=null;
   function fechar(){ if(atual && atual.length>=2) cadeias.push(atual); atual=null; prev=null; }
@@ -1017,7 +1154,6 @@ function construirCadeias(u, corArr, passoM, inv, keep){
     if(!atual) atual=[];
     if(prev && atual.length){
       if(u.mask && mk!==prev.mk){
-        // mask mudou: fecha e recomeça com ponte
         const ponte = {...prev, mk, larg:lg};
         areaM2 += Math.hypot(x-ponte.x,y-ponte.y)*(lg+prev.larg)/2;
         fechar();
@@ -1069,7 +1205,6 @@ function montarSeletores(){
   document.getElementById('sel-frota').innerHTML = ops.join('');
   pickerExpFrota.montar(fs);
   montarFiltrosClienteOS();
-  // dias presentes (amostragem: primeiro, último e passos de 500 registros)
   const dias = new Set();
   for(const u of UNIDADES){
     dias.add(u.dataHora(0).substring(0,10));
@@ -1077,8 +1212,6 @@ function montarSeletores(){
     for(let i=0;i<u.n;i+=500) dias.add(u.dataHora(i).substring(0,10));
   }
   const lista = [...dias].filter(d=>d.length===10).sort();
-  const opsDia = '<option value="'+TODAS+'">Todos os dias</option>'+
-    lista.map(d=>'<option value="'+d+'">'+d.split('-').reverse().join('/')+'</option>').join('');
   pickerMapa.montar(lista);
   pickerExp.montar(lista);
 }
@@ -1088,7 +1221,7 @@ function _opcoes(lista, rotTodos){
   return ['<option value="'+TODAS+'">'+rotTodos+' ('+lista.length+')</option>']
     .concat(lista.map(v=>'<option value="'+v.replace(/"/g,'&quot;')+'">'+v+'</option>')).join('');
 }
-function _restaura(sel, valor){ // mantém a seleção anterior se ainda existir
+function _restaura(sel, valor){
   if(valor && valor!==TODAS && [...sel.options].some(o=>o.value===valor)) sel.value=valor;
   else sel.value=TODAS;
 }
@@ -1102,10 +1235,8 @@ function montarFiltrosClienteOS(){
   _restaura(selF,FILTRO.faz);
   FILTRO.cliente=selC.value;
   FILTRO.faz=selF.value;
-  // exportação: múltipla escolha
   pickerExpCliente.montar(cli);
   pickerExpFaz.montar(faz);
-  // esconde o seletor de cliente/fazenda se não houver nenhum valor (evita UI vazia)
   for(const [wrapSel, len] of [['sel-cliente',cli.length],['sel-faz',faz.length]]){
     const el=document.getElementById(wrapSel);
     el.parentElement && (el.style.display = len?'block':'none');
@@ -1134,8 +1265,7 @@ function montarFiltroArea(){
   if(bAr) bAr.style.display = tem?'block':'none';
   montarBuscaResultados('');
 }
-/* ---- Busca de área (topo do mapa) ---- */
-/* miniatura SVG do talhão: normaliza os anéis na caixa 34x34 mantendo proporção */
+
 function miniaturaArea(a){
   const [mnLa,mnLo,mxLa,mxLo]=a.bb;
   const w=(mxLo-mnLo)||1e-6, h=(mxLa-mnLa)||1e-6;
@@ -1146,7 +1276,7 @@ function miniaturaArea(a){
     let d='';
     for(let i=0;i<anel.length;i++){
       const x=ox+(anel[i][1]-mnLo)*esc;
-      const y=oy+(mxLa-anel[i][0])*esc;  // inverte Y (norte pra cima)
+      const y=oy+(mxLa-anel[i][0])*esc;
       d+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' ';
     }
     return '<path d="'+d+'Z" fill="rgba(46,125,70,.25)" stroke="#2e7d46" stroke-width="1.1"/>';
@@ -1159,10 +1289,9 @@ function montarBuscaResultados(termo){
   if(!cx) return;
   if(_AREAS_IDX===null) reindexarAreas();
   const t=(termo||'').trim().toLowerCase();
-  // agrupa por rótulo (um talhão pode ter vários anéis/registros); usa o 1º de cada rótulo p/ bbox e miniatura
   const porRot=new Map();
   for(const a of (_AREAS_IDX||[])){
-    const chave = a.origem+'|'+a.rot;  // separa talhão e perímetro de mesmo nome
+    const chave = a.origem+'|'+a.rot;
     if(!porRot.has(chave)) porRot.set(chave, {rot:a.rot, origem:a.origem, aneis:[...a.aneis], bb:[...a.bb]});
     else{
       const g=porRot.get(chave);
@@ -1182,7 +1311,7 @@ function montarBuscaResultados(termo){
     cx.innerHTML = lista.slice(0,MAX).map((g,i)=>{
       const tipo = g.origem==='perim' ? 'Fazenda' : 'Talhão';
       return '<div class="res-item" data-i="'+i+'">'+miniaturaArea(g)+
-        '<div class="res-txt"><div class="res-nome">'+g.rot+'</div>'+
+        '<div class="res-txt"><div class="res-nome">'+escHtml(g.rot)+'</div>'+
         '<div class="res-sub">'+tipo+'</div></div></div>';
     }).join('') + (lista.length>MAX?'<div class="res-vazio">+'+(lista.length-MAX)+' resultados… refine a busca</div>':'');
     cx.querySelectorAll('.res-item').forEach(el=>{
@@ -1191,9 +1320,9 @@ function montarBuscaResultados(termo){
   }
   cx.classList.toggle('aberto', !!(document.getElementById('busca-inp')&&document.activeElement===document.getElementById('busca-inp')) || (t.length>0));
 }
+
 function selecionarAreaBusca(i){
   const g=_BUSCA_LISTA[i]; if(!g) return;
-  // filtra a pintura por essa área + sincroniza o seletor do painel
   FILTRO.area=g.rot;
   const selA=document.getElementById('sel-area');
   if(selA && [...selA.options].some(o=>o.value===g.rot)) selA.value=g.rot;
@@ -1201,7 +1330,6 @@ function selecionarAreaBusca(i){
   document.getElementById('busca-res').classList.remove('aberto');
   document.getElementById('busca-x').style.display='block';
   desenharMapaFiltro();
-  // zoom na área
   garantirMapa();
   mapa.fitBounds([[g.bb[0],g.bb[1]],[g.bb[2],g.bb[3]]], {padding:[40,40], maxZoom:17});
 }
@@ -1213,8 +1341,8 @@ function limparBuscaArea(){
   montarBuscaResultados('');
   desenharMapaFiltro();
 }
-let DIAS_SEL = new Set();   // Mapa (vazio = todos)
-let DIAS_EXP = new Set();   // Exportar (vazio = todos)
+let DIAS_SEL = new Set();
+let DIAS_EXP = new Set();
 function fmtDia(d){ return d.split('-').reverse().join('/'); }
 function criarPickerDias(btnId, popId, wrapId, estado, onChange){
   const btn = document.getElementById(btnId), pop = document.getElementById(popId);
@@ -1243,6 +1371,7 @@ function criarPickerDias(btnId, popId, wrapId, estado, onChange){
   });
   return { montar };
 }
+
 let _tmFiltro=null;
 function desenharMapaFiltro(){
   const leg=document.getElementById('legenda');
@@ -1253,8 +1382,6 @@ function desenharMapaFiltro(){
 const pickerMapa = criarPickerDias('dia-btn','dia-pop','dia-wrap', DIAS_SEL, desenharMapaFiltro);
 const pickerExp  = criarPickerDias('exp-dia-btn','exp-dia-pop','exp-dia-wrap', DIAS_EXP, null);
 
-/* Seletor genérico de múltipla escolha (lista de textos). Set vazio = todos.
-   Mesma UX do picker de dias: "Todos" + itens com checkbox, resumo no botão. */
 function criarPickerMulti(btnId, popId, wrapId, estado, rotuloTodos, onChange){
   const btn = document.getElementById(btnId), pop = document.getElementById(popId);
   let LISTA = [];
@@ -1266,7 +1393,6 @@ function criarPickerMulti(btnId, popId, wrapId, estado, rotuloTodos, onChange){
   }
   function montar(lista){
     LISTA = (lista||[]).slice();
-    // preserva só a seleção que ainda existe
     const novo = new Set([...estado].filter(v=>LISTA.includes(v)));
     estado.clear(); novo.forEach(v=>estado.add(v));
     let h = '<label class="todos"><input type="checkbox" class="pk-todos"'+(estado.size===0?' checked':'')+'> '+escHtml(rotuloTodos)+'</label><div class="sep"></div>';
@@ -1306,11 +1432,9 @@ let FUNDOS=null, fundoAtual=null, rotulosSat=null;
 function garantirMapa(){
   if(mapa) return;
   mapa = L.map('mapa',{preferCanvas:true, zoomControl:true});
-  // Satélite: Google (mais atualizado, zoom 21) com fallback automático pro Esri quando um tile falha
   const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:21,maxNativeZoom:19,attribution:'Esri'});
   const googleSat = L.tileLayer('https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',{subdomains:['0','1','2','3'],maxZoom:21,attribution:'Google'});
   googleSat.on('tileerror', function(){
-    // se o Google bloquear/falhar, cai pro Esri sem quebrar a experiência
     if(mapa.hasLayer(googleSat) && !mapa.hasLayer(esriSat)){
       mapa.removeLayer(googleSat); esriSat.addTo(mapa); esriSat.bringToBack(); fundoAtual=esriSat;
     }
@@ -1325,6 +1449,7 @@ function garantirMapa(){
   mapa.setView([-22.4,-50.6], 6);
   desenharCamadasShp(true);
 }
+
 function trocarFundo(){
   if(!mapa) return;
   const sel = document.getElementById('sel-fundo').value;
@@ -1334,6 +1459,7 @@ function trocarFundo(){
   fundoAtual = FUNDOS[chave].addTo(mapa);
   if(sel==='satnome') rotulosSat.addTo(mapa);
 }
+
 const PALETAS = {
   rdylbu:   [[33,102,172],[103,169,207],[247,247,176],[239,138,98],[178,24,43]],
   vivas:    [[0,60,255],[0,200,255],[0,255,60],[255,235,0],[255,120,0],[255,0,0]],
@@ -1385,6 +1511,7 @@ function desenharTalhoes(){
   }
   camadaTalhoes = L.layerGroup(pols).addTo(mapa);
 }
+
 function desenharMapa(manterVista){
   garantirMapa();
   const leg = document.getElementById('legenda');
@@ -1398,7 +1525,7 @@ function desenharMapa(manterVista){
   const corSel = document.getElementById('sel-cor').value;
   const inv = document.getElementById('chk-inv').checked;
   const metrica = (corSel!=='frota' && corSel!=='-') ? corSel : null;
-  // escala global entre todas as unidades exibidas
+
   let mn=0, mx=0;
   if(metrica){
     const vals=[];
@@ -1417,17 +1544,44 @@ function desenharMapa(manterVista){
   const areaFaz = {};
   const opac = opacidadeFaixa();
   const areaSel = FILTRO.area;
+
   for(const u of unids){
     const corArr = metrica ? u[metrica] : null;
     const filtDia = DIAS_SEL.size ? (i => DIAS_SEL.has(u.dataHora(i).substring(0,10))) : null;
     const filtArea = (areaSel!==TODAS) ? (i => pontoNaArea(u.lat[i], u.lon[i], areaSel)) : null;
     const keep = (filtDia && filtArea) ? (i => filtDia(i) && filtArea(i))
                : (filtDia || filtArea || null);
+
+    // Caso 1: Cobertura direta via Polígonos de Shapefile
+    if(u.poligonosDiretos){
+      for(let i=0; i<u.poligonosDiretos.length; i++){
+        if(keep && !keep(i)) continue;
+        const anel = u.poligonosDiretos[i];
+        
+        let cor = '#2e7d46';
+        if(corSel==='frota') cor = corFrota(u.frota);
+        else if(metrica && mx>mn) cor = corGradiente((bucket(corArr[i])+0.5)/NB);
+
+        const pg = L.polygon(anel, {renderer:render, stroke:false, fillColor:cor, fillOpacity:opac, smoothFactor:0});
+        pg._u = u; pg._idx = i;
+        pg.on('click', abrirPopup);
+        pols.push(pg);
+
+        for(const ll of anel){
+          if(!limites) limites = L.latLngBounds(ll, ll);
+          else limites.extend(ll);
+        }
+      }
+      continue;
+    }
+
+    // Caso 2: Trajetória interpolada padrão (ISO / C3000 CSV)
     const {cadeias, areaM2, proj} = construirCadeias(u, corArr, 2, inv, keep);
     areaTotal += areaM2;
     areaFrota[u.frota] = (areaFrota[u.frota]||0) + areaM2;
     const fzNome = u.fazenda || 'Sem fazenda';
     areaFaz[fzNome] = (areaFaz[fzNome]||0) + areaM2;
+    
     for(const cadeia of cadeias){
       let ini=0;
       for(let i=1;i<=cadeia.length;i++){
@@ -1442,7 +1596,6 @@ function desenharMapa(manterVista){
         else if(metrica && mx>mn) cor = corGradiente((bucket(cadeia[ini].cor)+0.5)/NB);
         const aneis = [];
         if(u.mask && u.ini && u.ini.secoes.length){
-          // sub-faixas por seção (heading do implemento)
           const tre = trechosMask(cadeia[ini].mk, u.ini, inv);
           for(const [o1,o2] of tre){
             const anel = [];
@@ -1457,7 +1610,6 @@ function desenharMapa(manterVista){
             aneis.push(anel);
           }
         } else {
-          // faixa centrada (perpendicular ao traçado)
           const sub = cadeia.slice(ini, fim+1);
           const {L:lados, R} = bordas(sub);
           const anel = [];
@@ -1478,14 +1630,17 @@ function desenharMapa(manterVista){
   }
   camada = L.layerGroup(pols).addTo(mapa);
   if(limites && manterVista!==true) mapa.fitBounds(limites.pad(0.05));
-  // legenda
+  
   let html = '<b>'+(areaTotal/10000).toLocaleString('pt-BR',{maximumFractionDigits:1})+' ha</b> (com sobreposição) · '+pols.length+' trechos';
   const fazendas = Object.keys(areaFaz).filter(f=>areaFaz[f]>0).sort();
   if(fazendas.length){
     html = fazendas.map(f=>
       f+' — <b>'+(areaFaz[f]/10000).toLocaleString('pt-BR',{maximumFractionDigits:1})+' ha</b>'
     ).join('<br>')+'<br><div style="border-top:1px solid #ddd;margin:4px 0"></div>'+html;
-    if(diaSel && diaSel!==TODAS) html = '<b>Dia '+diaSel.split('-').reverse().join('/')+'</b><br>'+html;
+    if(DIAS_SEL.size === 1) {
+      const dUnico = [...DIAS_SEL][0];
+      html = '<b>Dia '+dUnico.split('-').reverse().join('/')+'</b><br>'+html;
+    }
   }
   if(corSel==='frota'){
     html = frotas().filter(f=>areaFrota[f]).map(f=>
@@ -1496,19 +1651,20 @@ function desenharMapa(manterVista){
   }
   document.getElementById('legenda').innerHTML = html;
 }
+
 function abrirPopup(e){
   const u = e.target._u, i = e.target._idx;
   const fx = (v,d,suf)=> isNaN(v)?'—':v.toFixed(d)+suf;
   let extra = '';
-  if(u.cliente) extra += '<tr><td>Cliente</td><td class="num"><b>'+u.cliente+'</b></td></tr>';
-  if(osDe(u)) extra += '<tr><td>OS</td><td class="num"><b>'+osDe(u)+'</b></td></tr>';
-  if(u.fazenda||u.talhao) extra += '<tr><td>Fazenda · Talhão</td><td class="num"><b>'+([u.fazenda,u.talhao].filter(Boolean).join(' · '))+'</b></td></tr>';
-  if(u.tarefa) extra += '<tr><td>Tarefa</td><td class="num">'+u.tarefa+'</td></tr>';
-  const html = '<b>Frota '+u.frota+' · '+u.nome+'</b> ('+u.fonte+')<br>'+u.dataHora(i)+'<br>'+
+  if(u.cliente) extra += '<tr><td>Cliente</td><td class="num"><b>'+escHtml(u.cliente)+'</b></td></tr>';
+  if(osDe(u)) extra += '<tr><td>OS</td><td class="num"><b>'+escHtml(osDe(u))+'</b></td></tr>';
+  if(u.fazenda||u.talhao) extra += '<tr><td>Fazenda · Talhão</td><td class="num"><b>'+escHtml([u.fazenda,u.talhao].filter(Boolean).join(' · '))+'</b></td></tr>';
+  if(u.tarefa) extra += '<tr><td>Tarefa</td><td class="num">'+escHtml(u.tarefa)+'</td></tr>';
+  const html = '<b>Frota '+escHtml(u.frota)+' · '+escHtml(u.nome)+'</b> ('+u.fonte+')<br>'+u.dataHora(i)+'<br>'+
     u.lat[i].toFixed(7)+', '+u.lon[i].toFixed(7)+'<table>'+extra+
     '<tr><td>Largura aplicada</td><td class="num"><b>'+fx(u.larg[i],2,' m')+'</b></td></tr>'+
     '<tr><td>Taxa real</td><td class="num"><b>'+fx(u.taxa[i],2,' L/ha')+'</b></td></tr>'+
-    '<tr><td>Velocidade</td><td class="num">'+fx(u.vel[i],1,' km/h')+'</td></tr>'+
+    '<tr><td>Velocidade</td><td class="num"><b>'+fx(u.vel[i],1,' km/h')+'</b></td></tr>'+
     '<tr><td>Elevação</td><td class="num">'+fx(u.alt[i],1,' m')+'</td></tr>'+
     '</table>';
   L.popup({maxWidth:280}).setLatLng(e.latlng).setContent(html).openOn(mapa);
@@ -1520,6 +1676,7 @@ function nomeSeguro(s){
   return (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .replace(/[^A-Za-z0-9_-]+/g,'_').replace(/^_+|_+$/g,'').substring(0,40) || 'SEM_NOME';
 }
+
 async function exportar(){
   const st = document.getElementById('exp-status');
   if(!UNIDADES.length){ st.textContent='Carregue os zips primeiro.'; return; }
@@ -1529,8 +1686,6 @@ async function exportar(){
     const sep = document.getElementById('exp-sep').value;
     const passoM = document.getElementById('exp-agrupa').checked ? 2 : 0.001;
     const inv = document.getElementById('chk-inv').checked;
-    // gera quads das unidades filtradas por frota/cliente/fazenda, depois filtra por dia e área
-    // (cada Set vazio = "todos")
     let quads = [];
     for(const u of UNIDADES){
       if(EXP_FROTA.size   && !EXP_FROTA.has(u.frota)) continue;
@@ -1544,7 +1699,7 @@ async function exportar(){
     if(EXP_AREA.size)
       quads = quads.filter(q=> pontoNasAreas(q.u.lat[q.idx], q.u.lon[q.idx], EXP_AREA));
     if(!quads.length) throw new Error('Nenhum polígono no filtro escolhido.');
-    // agrupa conforme a separação
+
     const chave = q => {
       if(sep==='frota') return 'FROTA_'+q.u.frota;
       if(sep==='cliente') return 'CLI_'+nomeSeguro(q.u.cliente||'SEM_CLIENTE');
@@ -1584,7 +1739,17 @@ async function exportar(){
     if(err.name!=='AbortError') st.textContent='Erro: '+err.message;
   }
 }
+
 function gerarQuadsUnidade(u, passoM, inv){
+  // Caso de suporte direto a polígonos de shapefile
+  if(u.poligonosDiretos){
+    return u.poligonosDiretos.map((anel, idx) => ({
+      anel, u, idx,
+      largM: u.larg[idx] || 0,
+      velKmh: isNaN(u.vel[idx]) ? null : u.vel[idx]
+    }));
+  }
+
   const {cadeias, proj} = construirCadeias(u, null, passoM, inv);
   const quads=[];
   for(const cadeia of cadeias){
@@ -1633,6 +1798,7 @@ function gerarQuadsUnidade(u, passoM, inv){
   }
   return quads;
 }
+
 function gerarDBF(campos, linhas){
   const n = linhas.length;
   const larg = campos.reduce((s,c)=>s+c[2],0)+1;
@@ -1667,12 +1833,25 @@ function gerarDBF(campos, linhas){
   u8[buf.byteLength-1]=0x1A;
   return buf;
 }
+
 function gerarSHPfaixa(quads){
   const n = quads.length;
-  const recBytes = 136;
-  const shpLen = 100 + n*recBytes;
+  let recBytesTotal = 0;
+  const recOffsets = new Int32Array(n);
+  const recLengths = new Int32Array(n);
+
+  for(let k=0; k<n; k++){
+    recOffsets[k] = 100 + recBytesTotal;
+    const nPoints = quads[k].anel.length;
+    const contentBytes = 44 + 4 + (nPoints * 16);
+    recLengths[k] = contentBytes;
+    recBytesTotal += (8 + contentBytes);
+  }
+
+  const shpLen = 100 + recBytesTotal;
   const shp = new DataView(new ArrayBuffer(shpLen));
   const shx = new DataView(new ArrayBuffer(100 + n*8));
+
   let xmn=Infinity,ymn=Infinity,xmx=-Infinity,ymx=-Infinity;
   for(const q of quads) for(const p of q.anel){
     if(p[1]<xmn)xmn=p[1]; if(p[1]>xmx)xmx=p[1];
@@ -1685,26 +1864,39 @@ function gerarSHPfaixa(quads){
     dv.setFloat64(52,xmx,true); dv.setFloat64(60,ymx,true);
   }
   cab(shp,shpLen); cab(shx,100+n*8);
-  let o=100;
+
   quads.forEach((q,k)=>{
-    shx.setInt32(100+k*8,o/2,false); shx.setInt32(104+k*8,(recBytes-8)/2,false);
-    shp.setInt32(o,k+1,false); shp.setInt32(o+4,(recBytes-8)/2,false);
-    shp.setInt32(o+8,5,true);
+    const o = recOffsets[k];
+    const cLenWords = recLengths[k] / 2;
+
+    shx.setInt32(100+k*8, o/2, false);
+    shx.setInt32(104+k*8, cLenWords, false);
+
+    shp.setInt32(o, k+1, false);
+    shp.setInt32(o+4, cLenWords, false);
+    shp.setInt32(o+8, 5, true); // ShapeType = 5 (Polygon)
+
     let qxmn=Infinity,qymn=Infinity,qxmx=-Infinity,qymx=-Infinity;
     for(const p of q.anel){
       if(p[1]<qxmn)qxmn=p[1]; if(p[1]>qxmx)qxmx=p[1];
       if(p[0]<qymn)qymn=p[0]; if(p[0]>qymx)qymx=p[0];
     }
-    shp.setFloat64(o+12,qxmn,true); shp.setFloat64(o+20,qymn,true);
-    shp.setFloat64(o+28,qxmx,true); shp.setFloat64(o+36,qymx,true);
-    shp.setInt32(o+44,1,true); shp.setInt32(o+48,5,true); shp.setInt32(o+52,0,true);
-    let po=o+56;
+    shp.setFloat64(o+12, qxmn, true);
+    shp.setFloat64(o+20, qymn, true);
+    shp.setFloat64(o+28, qxmx, true);
+    shp.setFloat64(o+36, qymx, true);
+    shp.setInt32(o+44, 1, true); // NumParts = 1
+    shp.setInt32(o+48, q.anel.length, true); // NumPoints
+    shp.setInt32(o+52, 0, true); // Parts[0] = 0
+
+    let po = o + 56;
     for(const p of q.anel){
-      shp.setFloat64(po,p[1],true); shp.setFloat64(po+8,p[0],true);
-      po+=16;
+      shp.setFloat64(po, p[1], true);
+      shp.setFloat64(po+8, p[0], true);
+      po += 16;
     }
-    o+=recBytes;
   });
+
   const campos = [['DATA_HORA','C',23],['FROTA','C',10],['UNIDADE','C',10],
     ['FAZENDA','C',24],['TALHAO','C',12],['TAREFA','C',32],
     ['LARG_M','N',7,2],['VEL_KMH','N',7,1],['ALT_M','N',8,1],['TAXA_REAL','N',10,2]];
@@ -1719,6 +1911,7 @@ function gerarSHPfaixa(quads){
   });
   return {shp:shp.buffer, shx:shx.buffer, dbf:gerarDBF(campos,linhas), n};
 }
+
 const PRJ='GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
 async function entregarArquivo(blob, arqNome){
   const f = new File([blob], arqNome, {type: blob.type||'application/octet-stream'});
@@ -1738,7 +1931,6 @@ const TALHOES_SHP = [];
 let camadaPerim = null, camadaTalhShp = null;
 const ESTILO_SHP = { cor:'#ff9100', larg:2.5, nomes:false, campoNome:'auto',
                      nomesTalh:false, campoNomeTalh:'auto',
-                     /* visibilidade lembrada entre sessoes; talhoes SHP começam desligados p/ abrir rapido */
                      verPerim:true, verTalhShp:false, verTalhoes:true };
 
 function idbAbrir(){
@@ -1754,7 +1946,6 @@ async function idbSet(ch,v){ const db=await idbAbrir(); return new Promise((res,
 async function idbGet(ch){ const db=await idbAbrir(); return new Promise((res,rej)=>{ const rq=db.transaction('kv').objectStore('kv').get(ch); rq.onsuccess=()=>res(rq.result); rq.onerror=()=>rej(rq.error); }); }
 async function idbDel(ch){ const db=await idbAbrir(); return new Promise((res,rej)=>{ const tx=db.transaction('kv','readwrite'); tx.objectStore('kv').delete(ch); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }
 
-/* .shp: registros Polygon (5/15/25) -> por registro, lista de anéis com pares [x,y] crus */
 function parseShp(ab){
   const dv=new DataView(ab);
   if(dv.getInt32(0,false)!==9994) throw new Error('.shp inválido (assinatura).');
@@ -1784,7 +1975,6 @@ function parseShp(ab){
   return formas;
 }
 
-/* .dbf: nomes dos campos e registros como texto */
 function parseDbf(ab){
   const dv=new DataView(ab), dec=new TextDecoder('latin1');
   const n=dv.getUint32(4,true), cab=dv.getUint16(8,true), reg=dv.getUint16(10,true);
@@ -1809,7 +1999,6 @@ function campoDoNome(campos){
   return (m||cs[0]||{}).nome||null;
 }
 
-/* .prj: WGS84 geográfico ou UTM (Transverse Mercator) */
 function infoPrj(txt){
   if(!txt) return null;
   if(/PROJCS/i.test(txt) && /Transverse_?Mercator/i.test(txt)){
@@ -1820,7 +2009,7 @@ function infoPrj(txt){
   }
   return {geo:true};
 }
-/* UTM -> lat/lon (WGS84/SIRGAS2000) */
+
 function utmParaLL(x,y,cmDeg,fnorte,k0){
   const a=6378137, f=1/298.257223563, e2=f*(2-f), ep2=e2/(1-e2);
   const M=(y-(fnorte||0))/(k0||0.9996);
@@ -1842,7 +2031,6 @@ function utmParaLL(x,y,cmDeg,fnorte,k0){
   return [lat*180/Math.PI, lon*180/Math.PI];
 }
 
-/* conjuntos: [{shp:ArrayBuffer, dbf:ArrayBuffer|null, prj:string|null}] -> entradas {nome,aneis} */
 function montarPerimetros(conjuntos){
   const saida=[];
   for(const cj of conjuntos){
@@ -1986,7 +2174,7 @@ function popularSelectAtributos(){
 }
 function aplicarNomesEm(arr, campo){
   for(const p of arr){
-    if(!p.attrs) continue; // importado antes: mantem o nome que veio
+    if(!p.attrs) continue;
     p.nome = campo==='auto' ? nomeAuto(p.attrs) : String(p.attrs[campo]||'').trim();
   }
 }
@@ -2043,17 +2231,16 @@ function desenharCamadasShp(enquadrar){
 function statusCamada(msg){
   const el=document.getElementById('status-camada'); if(el) el.textContent=msg||'';
 }
-/* Persiste liga/desliga e, ao ligar camada pesada, dá feedback antes de desenhar
-   (o desenho de milhares de polígonos pode travar a tela por um instante). */
 function alternarCamada(desenhaFn, qtd){
-  lerEstiloControles();                 // salva verPerim / verTalhShp / verTalhoes
-  if(qtd>500){                          // camada grande: mostra aviso e desenha no próximo tick
+  lerEstiloControles();
+  if(qtd>500){
     statusCamada('desenhando '+qtd.toLocaleString('pt-BR')+'…');
     setTimeout(()=>{ desenhaFn(); statusCamada(''); }, 20);
   } else {
     desenhaFn(); statusCamada('');
   }
 }
+
 document.getElementById('arq-perim').addEventListener('change', e=>adicionarPerimetros(e.target.files,'perim'));
 document.getElementById('arq-talhshp').addEventListener('change', e=>adicionarPerimetros(e.target.files,'talh'));
 document.getElementById('btn-perim-limpar').addEventListener('click', async ()=>{
@@ -2070,6 +2257,7 @@ for(const id of ['cor-perim','larg-perim','chk-nomes-faz','sel-attr-nome'])
   document.getElementById(id).addEventListener('change', ()=>{ lerEstiloControles(); aplicarNomes(); if(id==='sel-attr-nome') invalidarAreas(); desenharPerimetros(); });
 for(const id of ['chk-nomes-talh','sel-attr-talh'])
   document.getElementById(id).addEventListener('change', ()=>{ lerEstiloControles(); aplicarNomes(); if(id==='sel-attr-talh') invalidarAreas(); desenharTalhoesShp(); });
+
 (async ()=>{
   try{
     const est=await idbGet('estilo_shp');
@@ -2109,9 +2297,7 @@ for(const id of ['sel-frota','sel-cor','sel-pal','sel-opac','chk-inv'])
 document.getElementById('sel-cliente').addEventListener('change', function(){ FILTRO.cliente=this.value; desenharMapaFiltro(); });
 document.getElementById('sel-faz').addEventListener('change',     function(){ FILTRO.faz=this.value;     desenharMapaFiltro(); });
 document.getElementById('sel-area').addEventListener('change',    function(){ FILTRO.area=this.value;    desenharMapaFiltro(); });
-/* exp-frota/cliente/fazenda/área agora são seletores de múltipla escolha
-   (criarPickerMulti), que já mantêm seu próprio estado (EXP_FROTA/EXP_CLIENTE/EXP_FAZ/EXP_AREA) */
-/* ---- eventos da busca de área ---- */
+
 (function(){
   const inp=document.getElementById('busca-inp'), res=document.getElementById('busca-res'),
         x=document.getElementById('busca-x'), area=document.getElementById('busca-area');
@@ -2139,9 +2325,10 @@ document.getElementById('sel-area').addEventListener('change',    function(){ FI
     } else if(e.key==='Escape'){ res.classList.remove('aberto'); inp.blur(); }
   });
 })();
+
 document.getElementById('chk-talhoes').addEventListener('change', ()=>alternarCamada(desenharTalhoes, TALHOES.length));
 document.getElementById('sel-fundo').addEventListener('change', trocarFundo);
-/* ---- botão de camadas: abre menu e espelha a escolha no #sel-fundo ---- */
+
 (function(){
   const btn=document.getElementById('camadas-btn'), menu=document.getElementById('camadas-menu'),
         wrap=document.getElementById('camadas-wrap'), selFundo=document.getElementById('sel-fundo');
@@ -2156,6 +2343,7 @@ document.getElementById('sel-fundo').addEventListener('change', trocarFundo);
     });
   });
 })();
+
 document.getElementById('recolher').addEventListener('click', ()=>{
   const painel=document.getElementById('painel-mapa');
   const busca=document.getElementById('busca-area');
